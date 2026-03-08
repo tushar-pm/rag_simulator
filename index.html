@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>RAG Simulator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+
+:root{
+--bg:#0f172a;
+--panel:#1e293b;
+--accent:#38bdf8;
+--accent2:#22c55e;
+--text:#e2e8f0;
+--muted:#94a3b8;
+}
+
+body{
+margin:0;
+font-family:Inter,system-ui;
+background:linear-gradient(180deg,#020617,#0f172a);
+color:var(--text);
+}
+
+header{
+padding:25px;
+font-size:26px;
+font-weight:700;
+text-align:center;
+}
+
+.container{
+max-width:1200px;
+margin:auto;
+padding:20px;
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:20px;
+}
+
+.panel{
+background:var(--panel);
+border-radius:14px;
+padding:18px;
+box-shadow:0 10px 30px rgba(0,0,0,.4);
+}
+
+.panel h2{
+margin-top:0;
+font-size:18px;
+color:var(--accent);
+}
+
+textarea{
+width:100%;
+height:80px;
+background:#020617;
+border:1px solid #334155;
+border-radius:8px;
+color:white;
+padding:10px;
+resize:none;
+}
+
+button{
+background:var(--accent);
+border:none;
+color:black;
+font-weight:600;
+padding:10px 18px;
+border-radius:8px;
+cursor:pointer;
+margin-top:10px;
+}
+
+button:hover{
+opacity:.9;
+}
+
+.doc{
+padding:10px;
+border-bottom:1px solid #334155;
+font-size:14px;
+}
+
+.score{
+color:var(--accent2);
+font-weight:600;
+}
+
+.step{
+margin-bottom:15px;
+padding:10px;
+background:#020617;
+border-radius:8px;
+}
+
+.output{
+background:#020617;
+padding:10px;
+border-radius:8px;
+min-height:70px;
+white-space:pre-wrap;
+}
+
+.badge{
+display:inline-block;
+padding:4px 8px;
+background:#334155;
+border-radius:6px;
+font-size:12px;
+margin-right:6px;
+}
+
+footer{
+text-align:center;
+padding:20px;
+color:var(--muted);
+font-size:13px;
+}
+
+</style>
+</head>
+
+<body>
+
+<header>
+RAG Simulator (Retrieval-Augmented Generation)
+</header>
+
+<div class="container">
+
+<div class="panel">
+
+<h2>1️⃣ Knowledge Base</h2>
+<div id="docs"></div>
+
+</div>
+
+
+<div class="panel">
+
+<h2>2️⃣ Ask a Question</h2>
+
+<textarea id="query" placeholder="Example: What is vector search?"></textarea>
+
+<button onclick="runRAG()">Run RAG Pipeline</button>
+
+<div style="margin-top:15px">
+
+<div class="step">
+<div class="badge">Step 1</div>
+<b>Query Embedding</b>
+<div id="embedding" class="output"></div>
+</div>
+
+<div class="step">
+<div class="badge">Step 2</div>
+<b>Vector Search</b>
+<div id="similarities" class="output"></div>
+</div>
+
+<div class="step">
+<div class="badge">Step 3</div>
+<b>Retrieved Context (Top-K)</b>
+<div id="context" class="output"></div>
+</div>
+
+<div class="step">
+<div class="badge">Step 4</div>
+<b>LLM Generated Answer</b>
+<div id="answer" class="output"></div>
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+<footer>
+Educational simulation of Retrieval-Augmented Generation
+</footer>
+
+<script>
+
+const documents=[
+"Vector databases store embeddings and enable semantic similarity search.",
+"Retrieval Augmented Generation improves LLM responses by injecting external knowledge.",
+"Embeddings convert text into high dimensional numerical vectors.",
+"Cosine similarity measures how similar two vectors are.",
+"RAG pipelines typically include indexing, retrieval, and generation steps.",
+"Large language models generate responses using provided context."
+]
+
+const DIM=12
+
+function embed(text){
+
+let vec=new Array(DIM).fill(0)
+
+for(let i=0;i<text.length;i++){
+let code=text.charCodeAt(i)
+vec[i%DIM]+=code/255
+}
+
+return vec
+}
+
+function cosine(a,b){
+
+let dot=0
+let magA=0
+let magB=0
+
+for(let i=0;i<a.length;i++){
+
+dot+=a[i]*b[i]
+magA+=a[i]*a[i]
+magB+=b[i]*b[i]
+
+}
+
+return dot/(Math.sqrt(magA)*Math.sqrt(magB))
+}
+
+const docEmbeddings=documents.map(embed)
+
+function showDocs(){
+
+const el=document.getElementById("docs")
+
+documents.forEach((d,i)=>{
+
+const div=document.createElement("div")
+div.className="doc"
+div.innerHTML="<b>Doc "+(i+1)+":</b> "+d
+
+el.appendChild(div)
+
+})
+
+}
+
+showDocs()
+
+function runRAG(){
+
+const query=document.getElementById("query").value
+
+if(!query)return
+
+const qEmbed=embed(query)
+
+document.getElementById("embedding").textContent=
+JSON.stringify(qEmbed.map(v=>v.toFixed(2)))
+
+let scores=[]
+
+docEmbeddings.forEach((emb,i)=>{
+
+const sim=cosine(qEmbed,emb)
+
+scores.push({
+doc:documents[i],
+score:sim
+})
+
+})
+
+scores.sort((a,b)=>b.score-a.score)
+
+const simText=scores.map(
+s=>"Score "+s.score.toFixed(3)+" → "+s.doc
+).join("\n")
+
+document.getElementById("similarities").textContent=simText
+
+const topK=scores.slice(0,2)
+
+const context=topK.map(d=>d.doc).join("\n")
+
+document.getElementById("context").textContent=context
+
+const answer=generateAnswer(query,context)
+
+document.getElementById("answer").textContent=answer
+
+}
+
+function generateAnswer(query,context){
+
+return "Based on retrieved knowledge:\n\n"+
+context+
+"\n\nAnswer:\n"+
+simulateLLM(query,context)
+
+}
+
+function simulateLLM(q,ctx){
+
+return "The question '"+q+"' relates to information in the retrieved documents. "+
+"Using that context, we infer that: "+
+ctx.split(".")[0]+"."
+
+}
+
+</script>
+
+</body>
+</html>
