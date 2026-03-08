@@ -1,0 +1,1681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Simulator — Retrieval-Augmented Generation</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07090f;
+    --surface: #0d1117;
+    --surface2: #161b24;
+    --surface3: #1e2533;
+    --border: #1f2937;
+    --accent: #00e5ff;
+    --accent2: #7c3aed;
+    --accent3: #10b981;
+    --accent4: #f59e0b;
+    --accent5: #ef4444;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --text-muted: #334155;
+    --glow: rgba(0, 229, 255, 0.15);
+    --glow2: rgba(124, 58, 237, 0.15);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .header {
+    position: relative;
+    z-index: 10;
+    padding: 32px 48px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    backdrop-filter: blur(10px);
+    background: rgba(7,9,15,0.8);
+  }
+
+  .header-left h1 {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+
+  .header-left h1 span {
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(0,229,255,0.5);
+  }
+
+  .header-left p {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-top: 2px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.5px;
+  }
+
+  .step-nav {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .step-pill {
+    width: 28px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface3);
+    cursor: pointer;
+    transition: all 0.3s;
+    position: relative;
+  }
+
+  .step-pill.active { background: var(--accent); box-shadow: 0 0 10px rgba(0,229,255,0.5); }
+  .step-pill.done { background: var(--accent3); }
+
+  .main {
+    position: relative;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: calc(100vh - 100px);
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 32px 24px;
+    gap: 24px;
+  }
+
+  /* === SIDEBAR === */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: all 0.4s;
+  }
+
+  .panel-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+  }
+
+  .panel-header .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot-cyan { background: var(--accent); box-shadow: 0 0 8px rgba(0,229,255,0.6); }
+  .dot-purple { background: var(--accent2); box-shadow: 0 0 8px rgba(124,58,237,0.6); }
+  .dot-green { background: var(--accent3); box-shadow: 0 0 8px rgba(16,185,129,0.6); }
+  .dot-amber { background: var(--accent4); box-shadow: 0 0 8px rgba(245,158,11,0.6); }
+  .dot-red { background: var(--accent5); box-shadow: 0 0 8px rgba(239,68,68,0.6); }
+
+  .panel-body { padding: 16px; }
+
+  /* Documents */
+  .doc-item {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .doc-item::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--accent);
+    transform: scaleY(0);
+    transform-origin: bottom;
+    transition: transform 0.3s;
+  }
+
+  .doc-item:hover::before, .doc-item.selected::before { transform: scaleY(1); }
+  .doc-item:hover { background: var(--surface2); border-color: rgba(0,229,255,0.2); }
+  .doc-item.selected { background: rgba(0,229,255,0.05); border-color: rgba(0,229,255,0.3); }
+
+  .doc-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  .doc-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+
+  /* Query input */
+  .query-input-wrap {
+    position: relative;
+  }
+
+  .query-input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    resize: vertical;
+    min-height: 80px;
+    outline: none;
+    transition: all 0.3s;
+    line-height: 1.6;
+  }
+
+  .query-input:focus {
+    border-color: rgba(0,229,255,0.4);
+    box-shadow: 0 0 0 3px rgba(0,229,255,0.08);
+  }
+
+  .query-input::placeholder { color: var(--text-muted); }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    letter-spacing: 0.3px;
+    transition: all 0.25s;
+    white-space: nowrap;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #07090f;
+    box-shadow: 0 0 20px rgba(0,229,255,0.2);
+  }
+
+  .btn-primary:hover {
+    background: #33eaff;
+    box-shadow: 0 0 30px rgba(0,229,255,0.4);
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover { background: var(--surface3); border-color: rgba(0,229,255,0.2); }
+
+  .btn-purple {
+    background: var(--accent2);
+    color: #fff;
+    box-shadow: 0 0 20px rgba(124,58,237,0.2);
+  }
+
+  .btn-purple:hover {
+    background: #8b5cf6;
+    box-shadow: 0 0 30px rgba(124,58,237,0.4);
+    transform: translateY(-1px);
+  }
+
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+  .btn-full { width: 100%; justify-content: center; margin-top: 10px; }
+
+  /* === MAIN CONTENT === */
+  .content-area { display: flex; flex-direction: column; gap: 24px; }
+
+  /* Step navigator */
+  .step-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 6px;
+    overflow-x: auto;
+  }
+
+  .step-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    transition: all 0.3s;
+    color: var(--text-dim);
+    white-space: nowrap;
+    border: none;
+    background: none;
+    font-family: 'Syne', sans-serif;
+  }
+
+  .step-tab .num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--surface3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    transition: all 0.3s;
+    flex-shrink: 0;
+  }
+
+  .step-tab.active {
+    background: var(--surface2);
+    color: var(--text);
+  }
+
+  .step-tab.active .num {
+    background: var(--accent);
+    color: #07090f;
+    box-shadow: 0 0 10px rgba(0,229,255,0.4);
+  }
+
+  .step-tab.done .num {
+    background: var(--accent3);
+    color: #07090f;
+  }
+
+  .step-tab.done { color: var(--text-dim); }
+
+  /* Step panels */
+  .step-panel { display: none; animation: fadeSlideIn 0.4s ease; }
+  .step-panel.active { display: block; }
+
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Stage cards */
+  .stage-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+
+  .stage-title {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .stage-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .stage-desc {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    margin-bottom: 20px;
+  }
+
+  /* Chunks display */
+  .chunks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+  }
+
+  .chunk-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    position: relative;
+    transition: all 0.3s;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .chunk-card .chunk-id {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+
+  .chunk-card:hover { border-color: rgba(0,229,255,0.3); background: var(--surface3); }
+  .chunk-card.retrieved {
+    border-color: var(--accent3);
+    background: rgba(16,185,129,0.08);
+    box-shadow: 0 0 16px rgba(16,185,129,0.15);
+  }
+
+  .chunk-card.retrieved .chunk-id { color: var(--accent3); }
+
+  .chunk-score {
+    position: absolute;
+    top: 8px; right: 8px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(16,185,129,0.2);
+    color: var(--accent3);
+  }
+
+  /* Vector visualization */
+  .vector-viz {
+    display: flex;
+    gap: 2px;
+    height: 48px;
+    align-items: flex-end;
+    margin-top: 8px;
+  }
+
+  .vector-bar {
+    flex: 1;
+    border-radius: 2px 2px 0 0;
+    min-height: 2px;
+    transition: all 0.5s ease;
+  }
+
+  /* Embeddings list */
+  .embedding-list { display: flex; flex-direction: column; gap: 12px; }
+
+  .embedding-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    transition: all 0.3s;
+  }
+
+  .embedding-item:hover { border-color: rgba(124,58,237,0.3); }
+
+  .embedding-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .embedding-id {
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent2);
+    font-weight: 600;
+  }
+
+  .embedding-dims {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .vector-display {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--surface);
+    padding: 8px 10px;
+    border-radius: 6px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    letter-spacing: 0.3px;
+  }
+
+  /* Similarity scores */
+  .sim-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .sim-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    transition: all 0.4s;
+  }
+
+  .sim-item.top { border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.05); }
+
+  .sim-rank {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    width: 20px;
+    text-align: center;
+  }
+
+  .sim-item.top .sim-rank { color: var(--accent3); }
+
+  .sim-text { flex: 1; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .sim-item.top .sim-text { color: var(--text); }
+
+  .sim-score-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; min-width: 60px; }
+
+  .sim-score-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent3);
+  }
+
+  .sim-bar-bg { width: 60px; height: 4px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
+
+  .sim-bar-fill {
+    height: 100%;
+    background: var(--accent3);
+    border-radius: 2px;
+    transition: width 0.8s ease;
+  }
+
+  /* Prompt builder */
+  .prompt-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .prompt-section {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  .prompt-section:last-child { border-bottom: none; }
+
+  .prompt-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .prompt-text {
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .prompt-text.highlighted { color: var(--text); }
+
+  .prompt-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 4px;
+  }
+
+  /* Response */
+  .response-box {
+    background: var(--surface2);
+    border: 1px solid rgba(16,185,129,0.3);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .response-box::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px; height: 100%;
+    background: linear-gradient(180deg, var(--accent3), var(--accent));
+  }
+
+  .response-text {
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--text);
+    padding-left: 8px;
+  }
+
+  .cursor-blink {
+    display: inline-block;
+    width: 2px;
+    height: 16px;
+    background: var(--accent3);
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink 1s infinite;
+  }
+
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+  /* Flow diagram */
+  .flow-diagram {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 20px 0;
+    overflow-x: auto;
+    margin-bottom: 20px;
+  }
+
+  .flow-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 80px;
+  }
+
+  .flow-icon {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    transition: all 0.4s;
+    position: relative;
+  }
+
+  .flow-node.active .flow-icon {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.1);
+    box-shadow: 0 0 20px rgba(0,229,255,0.3);
+    transform: scale(1.1);
+  }
+
+  .flow-node.done .flow-icon {
+    border-color: var(--accent3);
+    background: rgba(16,185,129,0.1);
+  }
+
+  .flow-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); text-align: center; }
+  .flow-node.active .flow-label { color: var(--accent); }
+  .flow-node.done .flow-label { color: var(--accent3); }
+
+  .flow-arrow {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border), var(--border));
+    position: relative;
+    min-width: 20px;
+    margin-bottom: 30px;
+  }
+
+  .flow-arrow.active {
+    background: linear-gradient(90deg, var(--accent3), var(--accent));
+    box-shadow: 0 0 8px rgba(0,229,255,0.3);
+  }
+
+  .flow-arrow::after {
+    content: '';
+    position: absolute;
+    right: -4px;
+    top: -3px;
+    width: 0; height: 0;
+    border-left: 6px solid var(--border);
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    transition: all 0.3s;
+  }
+
+  .flow-arrow.active::after { border-left-color: var(--accent); }
+
+  /* Tags */
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+  }
+
+  .tag-cyan { background: rgba(0,229,255,0.12); color: var(--accent); border: 1px solid rgba(0,229,255,0.2); }
+  .tag-purple { background: rgba(124,58,237,0.12); color: var(--accent2); border: 1px solid rgba(124,58,237,0.2); }
+  .tag-green { background: rgba(16,185,129,0.12); color: var(--accent3); border: 1px solid rgba(16,185,129,0.2); }
+  .tag-amber { background: rgba(245,158,11,0.12); color: var(--accent4); border: 1px solid rgba(245,158,11,0.2); }
+
+  /* Inline info */
+  .info-box {
+    background: rgba(0,229,255,0.05);
+    border: 1px solid rgba(0,229,255,0.15);
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+
+  .info-box strong { color: var(--accent); }
+
+  /* Navigation buttons */
+  .nav-row {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Loading dots */
+  .loading-dots span {
+    display: inline-block;
+    animation: loadDot 1.2s infinite;
+    font-size: 20px;
+    color: var(--accent);
+  }
+
+  .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes loadDot { 0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); } 40% { opacity: 1; transform: scale(1); } }
+
+  /* Metrics bar */
+  .metrics-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .metric-card {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    text-align: center;
+  }
+
+  .metric-val {
+    font-size: 22px;
+    font-weight: 800;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent);
+    display: block;
+  }
+
+  .metric-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 2px;
+    display: block;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+  /* Highlight animation */
+  @keyframes highlightPulse {
+    0% { box-shadow: 0 0 0 0 rgba(16,185,129,0.4); }
+    70% { box-shadow: 0 0 0 8px rgba(16,185,129,0); }
+    100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+  }
+
+  .highlight-pulse { animation: highlightPulse 1s ease infinite; }
+
+  .progress-bar-wrap {
+    height: 4px;
+    background: var(--surface3);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 10px 0;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.5s ease;
+  }
+
+  .overlap-text {
+    background: rgba(245,158,11,0.15);
+    border-radius: 3px;
+    padding: 0 2px;
+    color: var(--accent4);
+  }
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <h1>RAG <span>Simulator</span></h1>
+    <p>// retrieval-augmented generation — interactive walkthrough</p>
+  </div>
+  <div class="step-nav" id="stepPills"></div>
+</header>
+
+<div class="main">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- Documents -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="dot dot-cyan"></div>
+        Knowledge Base
+      </div>
+      <div class="panel-body" id="docList"></div>
+    </div>
+
+    <!-- Query -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="dot dot-purple"></div>
+        User Query
+      </div>
+      <div class="panel-body">
+        <div class="query-input-wrap">
+          <textarea class="query-input" id="queryInput" placeholder="e.g. How does photosynthesis work?"></textarea>
+        </div>
+        <button class="btn btn-primary btn-full" id="runBtn" onclick="startRAG()">
+          ▶ Run RAG Pipeline
+        </button>
+        <button class="btn btn-secondary btn-full" style="margin-top:8px;" onclick="resetAll()">
+          ↺ Reset
+        </button>
+      </div>
+    </div>
+
+    <!-- Config -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="dot dot-amber"></div>
+        Configuration
+      </div>
+      <div class="panel-body">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;">Chunk Size</label>
+            <input type="range" id="chunkSize" min="1" max="5" value="3" style="width:100%;accent-color:var(--accent);">
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;margin-top:2px;">
+              <span>Small</span><span id="chunkSizeVal">Medium</span><span>Large</span>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;">Top-K Retrieval</label>
+            <input type="range" id="topK" min="1" max="5" value="3" style="width:100%;accent-color:var(--accent2);">
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;margin-top:2px;">
+              <span>k=1</span><span id="topKVal" style="color:var(--accent2)">k=3</span><span>k=5</span>
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;">Embedding Model</label>
+            <select id="embModel" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;">
+              <option>text-embedding-3-small</option>
+              <option>text-embedding-ada-002</option>
+              <option>all-MiniLM-L6-v2</option>
+              <option>e5-large-v2</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content-area">
+
+    <!-- Step tabs -->
+    <div class="step-tabs" id="stepTabs"></div>
+
+    <!-- Step panels -->
+    <div id="stepPanels"></div>
+
+  </div>
+</div>
+
+<script>
+// ============================
+// DATA
+// ============================
+const DOCUMENTS = [
+  {
+    id: 'doc1', name: 'Biology Textbook', icon: '🧬',
+    pages: 248, tokens: 12400,
+    content: `Photosynthesis is the process by which green plants and some other organisms use sunlight to synthesize foods from carbon dioxide and water. Photosynthesis in plants generally involves the green pigment chlorophyll and generates oxygen as a byproduct. The light-dependent reactions take place in the thylakoid membrane and convert light energy into chemical energy stored as ATP and NADPH. The Calvin cycle occurs in the stroma and uses this chemical energy to fix carbon dioxide into glucose. Leaves are the primary sites of photosynthesis, and their flat shape maximizes light exposure. Stomata on leaf surfaces allow CO2 to enter and O2 to exit. Chloroplasts contain stacked thylakoid membranes called grana that house the photosynthetic machinery. The overall equation is: 6CO2 + 6H2O + light → C6H12O6 + 6O2.`
+  },
+  {
+    id: 'doc2', name: 'Climate Science Report', icon: '🌍',
+    pages: 94, tokens: 7200,
+    content: `Global warming refers to the long-term rise in the average temperature of Earth's climate system. The primary cause is the emission of greenhouse gases such as CO2 and methane from human activities. The greenhouse effect traps heat from the sun in the atmosphere. Since the Industrial Revolution, global temperatures have risen by approximately 1.1°C. The Paris Agreement aims to limit warming to 1.5°C above pre-industrial levels. Ocean acidification is a direct consequence of increased CO2 absorption by seawater. Ice caps are melting at unprecedented rates, contributing to sea level rise of roughly 3.3mm per year. Extreme weather events are becoming more frequent and intense due to climate change.`
+  },
+  {
+    id: 'doc3', name: 'AI Research Paper', icon: '🤖',
+    pages: 32, tokens: 5800,
+    content: `Large language models (LLMs) are neural networks trained on massive text corpora using transformer architectures. Attention mechanisms allow models to weigh the importance of different tokens when generating predictions. Retrieval-Augmented Generation (RAG) combines parametric knowledge stored in model weights with non-parametric knowledge retrieved from external databases. RAG was introduced by Lewis et al. in 2020 and has since become a standard technique for grounding LLM outputs in factual documents. Vector embeddings map text into high-dimensional semantic spaces where similar texts are close together. FAISS and other approximate nearest neighbor libraries enable fast similarity search over millions of vectors. Fine-tuning adapts pretrained models to specific domains or tasks.`
+  },
+  {
+    id: 'doc4', name: 'Medical Encyclopedia', icon: '⚕️',
+    pages: 1200, tokens: 45000,
+    content: `The human immune system is a complex network of cells, tissues, and organs that defends against pathogens. T-cells and B-cells are the primary lymphocytes responsible for adaptive immunity. Antibodies are proteins produced by B-cells that bind specifically to antigens on pathogen surfaces. Vaccines stimulate the immune system to produce memory cells without causing disease. The innate immune system provides immediate, non-specific defense through inflammation and phagocytosis. mRNA vaccines encode instructions for producing a target antigen, prompting immune response. Autoimmune diseases occur when the immune system mistakenly attacks the body's own tissues. Immunotherapy harnesses the immune system to fight cancer cells.`
+  }
+];
+
+const QUERIES = [
+  "How does photosynthesis work?",
+  "What causes global warming?",
+  "How does RAG improve LLM accuracy?",
+  "How do vaccines work?"
+];
+
+// State
+let state = {
+  selectedDocs: ['doc1'],
+  currentStep: 0,
+  chunks: [],
+  embeddings: [],
+  retrievedChunks: [],
+  query: '',
+  topK: 3,
+  ragComplete: false,
+  stepsUnlocked: [true, false, false, false, false, false, false]
+};
+
+// Steps definition
+const STEPS = [
+  { id: 'ingest', label: 'Ingest', icon: '📥' },
+  { id: 'chunk', label: 'Chunk', icon: '✂️' },
+  { id: 'embed', label: 'Embed', icon: '🧮' },
+  { id: 'index', label: 'Index', icon: '🗄️' },
+  { id: 'retrieve', label: 'Retrieve', icon: '🔍' },
+  { id: 'augment', label: 'Augment', icon: '🔗' },
+  { id: 'generate', label: 'Generate', icon: '✨' },
+];
+
+// ============================
+// INIT
+// ============================
+document.addEventListener('DOMContentLoaded', () => {
+  initDocs();
+  initTabs();
+  initPills();
+  renderStep(0);
+
+  document.getElementById('topK').addEventListener('input', e => {
+    state.topK = parseInt(e.target.value);
+    document.getElementById('topKVal').textContent = `k=${e.target.value}`;
+  });
+
+  document.getElementById('chunkSize').addEventListener('input', e => {
+    const labels = ['Tiny','Small','Medium','Large','Huge'];
+    document.getElementById('chunkSizeVal').textContent = labels[parseInt(e.target.value)-1];
+  });
+
+  // Pre-fill example query
+  document.getElementById('queryInput').value = QUERIES[0];
+  
+  // Allow clicking docs
+  document.querySelectorAll('.doc-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.id;
+      if (state.selectedDocs.includes(id)) {
+        if (state.selectedDocs.length > 1) {
+          state.selectedDocs = state.selectedDocs.filter(d => d !== id);
+          el.classList.remove('selected');
+        }
+      } else {
+        state.selectedDocs.push(id);
+        el.classList.add('selected');
+      }
+    });
+  });
+});
+
+function initDocs() {
+  const container = document.getElementById('docList');
+  container.innerHTML = DOCUMENTS.map(doc => `
+    <div class="doc-item ${state.selectedDocs.includes(doc.id) ? 'selected' : ''}" data-id="${doc.id}">
+      <div class="doc-name">${doc.icon} ${doc.name}</div>
+      <div class="doc-meta">${doc.pages}p · ${(doc.tokens/1000).toFixed(1)}K tokens</div>
+    </div>
+  `).join('');
+
+  document.querySelectorAll('.doc-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.id;
+      if (state.selectedDocs.includes(id)) {
+        if (state.selectedDocs.length > 1) {
+          state.selectedDocs = state.selectedDocs.filter(d => d !== id);
+          el.classList.remove('selected');
+        }
+      } else {
+        state.selectedDocs.push(id);
+        el.classList.add('selected');
+      }
+    });
+  });
+}
+
+function initTabs() {
+  const container = document.getElementById('stepTabs');
+  container.innerHTML = STEPS.map((s, i) => `
+    <button class="step-tab ${i === 0 ? 'active' : ''}" data-step="${i}" onclick="goToStep(${i})" id="tab-${i}">
+      <span class="num">${i + 1}</span>
+      ${s.icon} ${s.label}
+    </button>
+  `).join('');
+}
+
+function initPills() {
+  const container = document.getElementById('stepPills');
+  container.innerHTML = STEPS.map((s, i) => `
+    <div class="step-pill ${i === 0 ? 'active' : ''}" title="${s.label}" id="pill-${i}" onclick="goToStep(${i})"></div>
+  `).join('');
+}
+
+function updateTabUI() {
+  STEPS.forEach((_, i) => {
+    const tab = document.getElementById(`tab-${i}`);
+    const pill = document.getElementById(`pill-${i}`);
+    if (!tab) return;
+    tab.className = 'step-tab';
+    pill.className = 'step-pill';
+    if (i === state.currentStep) {
+      tab.classList.add('active');
+      pill.classList.add('active');
+    } else if (state.stepsUnlocked[i] && i < state.currentStep) {
+      tab.classList.add('done');
+      pill.classList.add('done');
+    }
+    tab.disabled = !state.stepsUnlocked[i];
+    tab.style.opacity = state.stepsUnlocked[i] ? '1' : '0.4';
+    tab.style.cursor = state.stepsUnlocked[i] ? 'pointer' : 'default';
+  });
+}
+
+function goToStep(i) {
+  if (!state.stepsUnlocked[i]) return;
+  state.currentStep = i;
+  updateTabUI();
+  renderStep(i);
+}
+
+// ============================
+// STEP RENDERERS
+// ============================
+function renderStep(i) {
+  const container = document.getElementById('stepPanels');
+  const renderers = [
+    renderIngest,
+    renderChunk,
+    renderEmbed,
+    renderIndex,
+    renderRetrieve,
+    renderAugment,
+    renderGenerate
+  ];
+  container.innerHTML = `<div class="step-panel active">${renderers[i]()}</div>`;
+}
+
+// Helpers
+function flowDiagram(activeIdx) {
+  const nodes = STEPS.map((s, i) => {
+    let cls = '';
+    if (i === activeIdx) cls = 'active';
+    else if (i < activeIdx) cls = 'done';
+    return `<div class="flow-node ${cls}">
+      <div class="flow-icon">${s.icon}</div>
+      <div class="flow-label">${s.label}</div>
+    </div>`;
+  });
+
+  let html = '<div class="flow-diagram">';
+  nodes.forEach((n, i) => {
+    html += n;
+    if (i < nodes.length - 1) {
+      html += `<div class="flow-arrow ${i < activeIdx ? 'active' : ''}"></div>`;
+    }
+  });
+  html += '</div>';
+  return html;
+}
+
+function navRow(stepIdx) {
+  const prev = stepIdx > 0 ? `<button class="btn btn-secondary" onclick="goToStep(${stepIdx-1})">← Back</button>` : '';
+  const isLast = stepIdx === STEPS.length - 1;
+  let nextBtn = '';
+  if (!isLast) {
+    if (state.stepsUnlocked[stepIdx + 1]) {
+      nextBtn = `<button class="btn btn-primary" onclick="goToStep(${stepIdx+1})">Next Step →</button>`;
+    }
+  }
+  return `<div class="nav-row">${prev}${nextBtn}</div>`;
+}
+
+// ─── STEP 0: Ingest ──────────────────────────────────────────────────────────
+function renderIngest() {
+  const docs = DOCUMENTS.filter(d => state.selectedDocs.includes(d.id));
+  const totalTokens = docs.reduce((s, d) => s + d.tokens, 0);
+
+  return `
+    ${flowDiagram(0)}
+    <div class="stage-card">
+      <div class="stage-title">
+        📥 Document Ingestion
+        <span class="stage-badge tag-cyan">Step 1</span>
+      </div>
+      <div class="stage-desc">
+        The first step in RAG is loading your raw documents into the system. These can be PDFs, web pages, database records, or any text source. The documents form the <strong>knowledge base</strong> that the LLM will draw from when answering questions.
+      </div>
+      <div class="info-box">
+        💡 <strong>Why this matters:</strong> The quality and relevance of your documents directly determines how accurate and useful the final answers will be. Garbage in, garbage out.
+      </div>
+      <div class="metrics-row">
+        <div class="metric-card">
+          <span class="metric-val" style="color:var(--accent)">${docs.length}</span>
+          <span class="metric-label">Documents</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-val" style="color:var(--accent2)">${(totalTokens/1000).toFixed(1)}K</span>
+          <span class="metric-label">Total Tokens</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-val" style="color:var(--accent3)">${docs.reduce((s,d)=>s+d.pages,0)}</span>
+          <span class="metric-label">Pages</span>
+        </div>
+      </div>
+      <div>
+        ${docs.map(d => `
+          <div class="doc-item selected" style="margin-bottom:10px;pointer-events:none;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div class="doc-name">${d.icon} ${d.name}</div>
+              <span class="tag tag-cyan">loaded</span>
+            </div>
+            <div class="doc-meta" style="margin-top:4px;">${d.pages} pages · ${(d.tokens/1000).toFixed(1)}K tokens</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-top:8px;line-height:1.6;font-family:'JetBrains Mono',monospace;background:var(--surface2);padding:10px;border-radius:6px;">
+              "${d.content.substring(0, 120)}..."
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="nav-row">
+        <button class="btn btn-primary" onclick="proceedChunk()">✂️ Proceed to Chunking →</button>
+      </div>
+    </div>
+  `;
+}
+
+// ─── STEP 1: Chunk ───────────────────────────────────────────────────────────
+function renderChunk() {
+  const docs = DOCUMENTS.filter(d => state.selectedDocs.includes(d.id));
+  const chunkSizeVal = parseInt(document.getElementById('chunkSize')?.value || 3);
+  const sentences = [];
+
+  docs.forEach(doc => {
+    const sents = doc.content.match(/[^.!?]+[.!?]+/g) || [doc.content];
+    for (let i = 0; i < sents.length; i += chunkSizeVal) {
+      const chunk = sents.slice(i, i + chunkSizeVal).join(' ').trim();
+      if (chunk.length > 30) {
+        sentences.push({ id: `chunk_${sentences.length+1}`, text: chunk, source: doc.name, sourceIcon: doc.icon });
+      }
+    }
+  });
+
+  state.chunks = sentences;
+
+  return `
+    ${flowDiagram(1)}
+    <div class="stage-card">
+      <div class="stage-title">
+        ✂️ Text Chunking
+        <span class="stage-badge tag-purple">Step 2</span>
+      </div>
+      <div class="stage-desc">
+        LLMs have limited context windows and embedding models work best on smaller pieces of text. We split documents into overlapping <strong>chunks</strong> — small, semantically meaningful text segments. The chunk size controls the granularity.
+      </div>
+      <div class="info-box">
+        💡 <strong>Chunk size trade-off:</strong> Smaller chunks = more precise retrieval but less context per result. Larger chunks = more context but may include irrelevant content. Overlap between chunks prevents losing info at boundaries.
+      </div>
+      <div class="metrics-row">
+        <div class="metric-card">
+          <span class="metric-val" style="color:var(--accent2)">${sentences.length}</span>
+          <span class="metric-label">Chunks Created</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-val" style="color:var(--accent4)">${Math.round(sentences.reduce((s,c)=>s+c.text.split(' ').length,0)/sentences.length)}</span>
+          <span class="metric-label">Avg Words/Chunk</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-val" style="color:var(--accent3)">${chunkSizeVal}</span>
+          <span class="metric-label">Sentences/Chunk</span>
+        </div>
+      </div>
+      <div class="chunks-grid">
+        ${sentences.slice(0,12).map(c => `
+          <div class="chunk-card">
+            <div class="chunk-id">${c.id} · ${c.sourceIcon} ${c.source.split(' ')[0]}</div>
+            ${c.text.substring(0,140)}${c.text.length > 140 ? '…' : ''}
+          </div>
+        `).join('')}
+        ${sentences.length > 12 ? `<div style="display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text-muted);padding:20px;">+${sentences.length-12} more chunks…</div>` : ''}
+      </div>
+      ${navRow(1)}
+    </div>
+  `;
+}
+
+// ─── STEP 2: Embed ───────────────────────────────────────────────────────────
+function renderEmbed() {
+  const model = document.getElementById('embModel')?.value || 'text-embedding-3-small';
+  const dims = model.includes('ada') ? 1536 : model.includes('large') ? 1024 : 384;
+
+  const embeddings = state.chunks.slice(0,6).map(c => {
+    const vec = Array.from({length:20}, () => (Math.random()*2-1).toFixed(3));
+    return { ...c, vector: vec, dims };
+  });
+
+  state.embeddings = state.chunks.map(c => ({
+    ...c,
+    vector: Array.from({length:20}, () => (Math.random()*2-1).toFixed(3)),
+    dims
+  }));
+
+  return `
+    ${flowDiagram(2)}
+    <div class="stage-card">
+      <div class="stage-title">
+        🧮 Text Embedding
+        <span class="stage-badge tag-purple" style="background:rgba(124,58,237,0.12);color:var(--accent2);border-color:rgba(124,58,237,0.2)">Step 3</span>
+      </div>
+      <div class="stage-desc">
+        Each chunk is converted into a <strong>dense vector</strong> (a list of floating-point numbers) using an embedding model. These vectors capture the semantic meaning of the text — similar meanings produce similar vectors, enabling mathematical comparison.
+      </div>
+      <div class="info-box">
+        💡 <strong>Model: <code style="color:var(--accent)">${model}</code></strong> · Dimensions: <strong style="color:var(--accent2)">${dims}</strong> · 
+        Vectors live in a high-dimensional semantic space where cosine similarity measures meaning proximity.
+      </div>
+      <div class="embedding-list">
+        ${embeddings.map(e => `
+          <div class="embedding-item">
+            <div class="embedding-header">
+              <span class="embedding-id">${e.id} · ${e.sourceIcon}</span>
+              <span class="embedding-dims">ℝ^${e.dims} vector</span>
+            </div>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px;font-family:'JetBrains Mono',monospace;line-height:1.5;">
+              "${e.text.substring(0,80)}…"
+            </div>
+            <div class="vector-viz">
+              ${e.vector.map(v => {
+                const h = Math.abs(parseFloat(v)) * 44 + 2;
+                const hue = parseFloat(v) > 0 ? '180' : '270';
+                return `<div class="vector-bar" style="height:${h}px;background:hsl(${hue},80%,60%);opacity:0.7;"></div>`;
+              }).join('')}
+            </div>
+            <div class="vector-display">
+              [ ${e.vector.slice(0,10).join(', ')}, … ] (${e.dims}d)
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      ${navRow(2)}
+    </div>
+  `;
+}
+
+// ─── STEP 3: Index ───────────────────────────────────────────────────────────
+function renderIndex() {
+  const totalVecs = state.embeddings.length;
+  return `
+    ${flowDiagram(3)}
+    <div class="stage-card">
+      <div class="stage-title">
+        🗄️ Vector Indexing
+        <span class="stage-badge" style="background:rgba(245,158,11,0.12);color:var(--accent4);border:1px solid rgba(245,158,11,0.2)">Step 4</span>
+      </div>
+      <div class="stage-desc">
+        All embeddings are stored in a <strong>vector database</strong> (vector store). These are specialized databases optimized for fast <em>nearest-neighbor search</em> — finding the most similar vectors to a query vector in milliseconds, even over millions of entries.
+      </div>
+      <div class="info-box">
+        💡 <strong>Common vector stores:</strong> Pinecone, Weaviate, Chroma, FAISS, pgvector. They use indexing algorithms like HNSW or IVF to enable approximate nearest neighbor (ANN) search at scale.
+      </div>
+
+      <div class="metrics-row">
+        <div class="metric-card">
+          <span class="metric-val" style="color:var(--accent4)">${totalVecs}</span>
+          <span class="metric-label">Vectors Stored</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-val" style="color:var(--accent)">HNSW</span>
+          <span class="metric-label">Index Type</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-val" style="color:var(--accent3)">&lt;5ms</span>
+          <span class="metric-label">Query Latency</span>
+        </div>
+      </div>
+
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:4px;">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px;font-family:'JetBrains Mono',monospace;text-align:center;letter-spacing:0.5px;">Vector Space Visualization (2D projection)</div>
+        <svg viewBox="0 0 360 200" style="width:100%;max-height:200px;" id="vectorSpaceSvg">
+          <defs>
+            <radialGradient id="glow1" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#00e5ff" stop-opacity="0.15"/>
+              <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+            </radialGradient>
+            <radialGradient id="glow2" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.15"/>
+              <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <!-- Grid lines -->
+          ${Array.from({length:6},(_,i)=>`<line x1="${i*72}" y1="0" x2="${i*72}" y2="200" stroke="#1f2937" stroke-width="0.5"/>`).join('')}
+          ${Array.from({length:5},(_,i)=>`<line x1="0" y1="${i*50}" x2="360" y2="${i*50}" stroke="#1f2937" stroke-width="0.5"/>`).join('')}
+          <!-- Cluster halos -->
+          <circle cx="100" cy="80" r="40" fill="url(#glow1)"/>
+          <circle cx="250" cy="130" r="45" fill="url(#glow2)"/>
+          <!-- Doc cluster 1 (Biology) -->
+          ${[[85,65],[110,75],[90,100],[115,55],[75,88]].map(([x,y],i)=>`
+            <circle cx="${x}" cy="${y}" r="5" fill="#00e5ff" opacity="0.8">
+              <title>Chunk ${i+1} (Biology)</title>
+            </circle>
+            <text x="${x+8}" y="${y+4}" font-size="7" fill="#00e5ff" opacity="0.6" font-family="monospace">c${i+1}</text>
+          `).join('')}
+          <!-- Doc cluster 2 (AI) -->
+          ${[[240,115],[265,140],[250,155],[230,135],[275,120]].map(([x,y],i)=>`
+            <circle cx="${x}" cy="${y}" r="5" fill="#7c3aed" opacity="0.8"/>
+            <text x="${x+8}" y="${y+4}" font-size="7" fill="#7c3aed" opacity="0.6" font-family="monospace">c${i+6}</text>
+          `).join('')}
+          <!-- Climate cluster -->
+          ${[[170,40],[185,60],[155,55]].map(([x,y],i)=>`
+            <circle cx="${x}" cy="${y}" r="5" fill="#10b981" opacity="0.8"/>
+          `).join('')}
+          <!-- Medical cluster -->
+          ${[[300,50],[320,70],[310,40]].map(([x,y],i)=>`
+            <circle cx="${x}" cy="${y}" r="5" fill="#f59e0b" opacity="0.8"/>
+          `).join('')}
+          <!-- Axis labels -->
+          <text x="175" y="195" font-size="9" fill="#475569" font-family="monospace" text-anchor="middle">Semantic Dimension 1</text>
+          <text x="12" y="100" font-size="9" fill="#475569" font-family="monospace" text-anchor="middle" transform="rotate(-90,12,100)">Dim 2</text>
+          <!-- Legend -->
+          <circle cx="20" cy="20" r="4" fill="#00e5ff"/>
+          <text x="28" y="24" font-size="8" fill="#64748b" font-family="monospace">Biology</text>
+          <circle cx="70" cy="20" r="4" fill="#7c3aed"/>
+          <text x="78" y="24" font-size="8" fill="#64748b" font-family="monospace">AI/RAG</text>
+          <circle cx="120" cy="20" r="4" fill="#10b981"/>
+          <text x="128" y="24" font-size="8" fill="#64748b" font-family="monospace">Climate</text>
+          <circle cx="170" cy="20" r="4" fill="#f59e0b"/>
+          <text x="178" y="24" font-size="8" fill="#64748b" font-family="monospace">Medical</text>
+        </svg>
+      </div>
+      <div style="margin-top:12px;font-size:12px;color:var(--text-dim);text-align:center;">
+        Documents about similar topics cluster together in the vector space — this is what enables semantic search.
+      </div>
+      ${navRow(3)}
+    </div>
+  `;
+}
+
+// ─── STEP 4: Retrieve ────────────────────────────────────────────────────────
+function renderRetrieve() {
+  const query = state.query;
+  const topK = state.topK;
+
+  // Simulate retrieval scores based on keyword matching
+  const queryLower = query.toLowerCase();
+  const keywords = queryLower.split(' ').filter(w => w.length > 3);
+
+  const scored = state.chunks.map(c => {
+    let score = 0.4 + Math.random() * 0.2;
+    const textLower = c.text.toLowerCase();
+    keywords.forEach(kw => {
+      if (textLower.includes(kw)) score += 0.12;
+    });
+    score = Math.min(0.99, score + (Math.random() * 0.05));
+    return { ...c, score };
+  }).sort((a,b) => b.score - a.score);
+
+  state.retrievedChunks = scored.slice(0, topK);
+
+  return `
+    ${flowDiagram(4)}
+    <div class="stage-card">
+      <div class="stage-title">
+        🔍 Semantic Retrieval
+        <span class="stage-badge tag-green">Step 5</span>
+      </div>
+      <div class="stage-desc">
+        The user's query is embedded using the same model, then we search the vector store for the <strong>top-${topK} most similar chunks</strong> (k=${topK}). Similarity is measured using <em>cosine similarity</em> — how aligned the query vector is with each chunk vector.
+      </div>
+      <div class="info-box">
+        💡 <strong>Query:</strong> <em style="color:var(--accent)">"${query}"</em> → Embedded → Compared against ${state.chunks.length} vectors → Top-${topK} returned
+      </div>
+
+      <!-- Query vector -->
+      <div style="background:var(--surface2);border:1px solid rgba(0,229,255,0.2);border-radius:10px;padding:14px;margin-bottom:16px;">
+        <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">🔎 Query Vector</div>
+        <div class="vector-viz" style="height:32px;">
+          ${Array.from({length:30},() => {
+            const v = Math.random()*2-1;
+            const h = Math.abs(v)*30+2;
+            return `<div class="vector-bar" style="height:${h}px;background:var(--accent);opacity:0.6;"></div>`;
+          }).join('')}
+        </div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim);margin-top:6px;background:var(--surface);padding:6px 10px;border-radius:5px;">
+          [ 0.231, -0.842, 0.154, 0.671, -0.099, … ] (384d)
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-dim);margin-bottom:10px;font-family:'JetBrains Mono',monospace;">
+        Similarity Rankings — All ${Math.min(scored.length, 10)} Candidates
+      </div>
+      <div class="sim-list">
+        ${scored.slice(0, Math.min(scored.length,10)).map((c, i) => `
+          <div class="sim-item ${i < topK ? 'top' : ''}">
+            <div class="sim-rank">${i < topK ? '★' : `${i+1}`}</div>
+            <div style="flex:1;">
+              <div style="font-size:10px;color:${i < topK ? 'var(--accent3)' : 'var(--text-muted)'};font-family:'JetBrains Mono',monospace;font-weight:700;margin-bottom:3px;">${c.id} · ${c.sourceIcon} ${c.source}</div>
+              <div class="sim-text">${c.text.substring(0,100)}…</div>
+            </div>
+            <div class="sim-score-wrap">
+              <span class="sim-score-num" style="color:${i < topK ? 'var(--accent3)' : 'var(--text-dim)'};">${c.score.toFixed(3)}</span>
+              <div class="sim-bar-bg">
+                <div class="sim-bar-fill" style="width:${c.score*100}%;background:${i < topK ? 'var(--accent3)' : 'var(--surface3)'};"></div>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div style="margin-top:12px;padding:10px 14px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;font-size:12px;color:var(--accent3);font-family:'JetBrains Mono',monospace;">
+        ✓ Retrieved top-${topK} chunks (score ≥ ${scored[topK-1]?.score.toFixed(3) || '—'}) for context injection
+      </div>
+      ${navRow(4)}
+    </div>
+  `;
+}
+
+// ─── STEP 5: Augment ─────────────────────────────────────────────────────────
+function renderAugment() {
+  const query = state.query;
+  const retrieved = state.retrievedChunks;
+
+  const contextText = retrieved.map((c, i) =>
+    `[Context ${i+1}] (${c.sourceIcon} ${c.source})\n${c.text.substring(0, 100)}…`
+  ).join('\n\n');
+
+  return `
+    ${flowDiagram(5)}
+    <div class="stage-card">
+      <div class="stage-title">
+        🔗 Prompt Augmentation
+        <span class="stage-badge" style="background:rgba(239,68,68,0.1);color:var(--accent5);border:1px solid rgba(239,68,68,0.2)">Step 6</span>
+      </div>
+      <div class="stage-desc">
+        The retrieved chunks are <strong>injected into the prompt</strong> alongside the user's query. This "augmented prompt" is what the LLM actually sees — it now has both the question and relevant factual context to generate a grounded answer.
+      </div>
+      <div class="info-box">
+        💡 This is the core insight of RAG: we give the LLM <strong>external knowledge at inference time</strong>, so it doesn't need to memorize all facts. The model focuses on reasoning, not recall.
+      </div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-dim);margin-bottom:12px;font-family:'JetBrains Mono',monospace;">
+        Constructed Prompt
+      </div>
+
+      <div class="prompt-box">
+        <div class="prompt-section">
+          <div class="prompt-label" style="color:var(--accent4);">
+            🔧 <span style="color:var(--accent4)">System Prompt</span>
+          </div>
+          <div class="prompt-text">
+            You are a helpful assistant. Answer the user's question using ONLY the provided context. 
+            If the context doesn't contain the answer, say "I don't know." Be concise and accurate.
+          </div>
+        </div>
+
+        <div class="prompt-section" style="background:rgba(16,185,129,0.04);">
+          <div class="prompt-label" style="color:var(--accent3);">
+            📄 <span style="color:var(--accent3)">Retrieved Context (${retrieved.length} chunks)</span>
+          </div>
+          ${retrieved.map((c, i) => `
+            <div style="margin-bottom:10px;padding:10px;background:var(--surface);border-radius:8px;border-left:3px solid var(--accent3);">
+              <div style="font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--accent3);font-weight:700;margin-bottom:5px;">
+                CONTEXT ${i+1} · ${c.sourceIcon} ${c.source} · similarity: ${c.score.toFixed(3)}
+              </div>
+              <div class="prompt-text">${c.text.substring(0, 160)}…</div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="prompt-section" style="background:rgba(0,229,255,0.04);">
+          <div class="prompt-label" style="color:var(--accent);">
+            ❓ <span style="color:var(--accent)">User Query</span>
+          </div>
+          <div class="prompt-text highlighted" style="color:var(--accent);">
+            "${query}"
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:11px;color:var(--text-dim);">
+          <span>Prompt size</span>
+          <span style="font-family:'JetBrains Mono',monospace;">${Math.floor(600 + retrieved.length * 150)} tokens</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" style="width:${Math.min(((600 + retrieved.length * 150)/4096)*100, 100)}%;background:linear-gradient(90deg,var(--accent3),var(--accent));"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">Context window: 4096 tokens max</div>
+      </div>
+      ${navRow(5)}
+    </div>
+  `;
+}
+
+// ─── STEP 6: Generate ────────────────────────────────────────────────────────
+function renderGenerate() {
+  const query = state.query;
+  const retrieved = state.retrievedChunks;
+
+  // Generate a plausible answer based on query and retrieved chunks
+  const answers = {
+    'photosynthesis': `Photosynthesis is the process by which plants convert sunlight, carbon dioxide, and water into glucose and oxygen. It occurs primarily in the chloroplasts of leaf cells, where the pigment chlorophyll captures light energy. The process has two main stages: the light-dependent reactions (in the thylakoid membranes) which produce ATP and NADPH, and the Calvin cycle (in the stroma) which uses that energy to fix CO₂ into sugar. The overall equation is: 6CO₂ + 6H₂O + light energy → C₆H₁₂O₆ + 6O₂.`,
+    'global warming': `Global warming is the long-term rise in Earth's average surface temperature, primarily driven by human emissions of greenhouse gases like CO₂ and methane. Since the Industrial Revolution, global temperatures have increased by approximately 1.1°C. These gases trap solar heat in the atmosphere (the greenhouse effect). Key consequences include melting ice caps, rising sea levels (~3.3mm/year), ocean acidification, and more frequent extreme weather events. The Paris Agreement aims to limit warming to 1.5°C above pre-industrial levels.`,
+    'rag': `RAG (Retrieval-Augmented Generation) improves LLM accuracy by combining the model's parametric knowledge with retrieved external documents. Instead of relying solely on information memorized during training, the model receives relevant text chunks as context in the prompt. This grounds responses in factual, up-to-date information, reduces hallucination, and allows the model to answer questions about private or recent data it wasn't trained on. RAG was introduced by Lewis et al. in 2020 and uses vector embeddings for semantic retrieval.`,
+    'vaccine': `Vaccines work by training the immune system to recognize and fight specific pathogens without causing disease. Traditional vaccines introduce weakened or inactivated pathogens or their proteins (antigens). mRNA vaccines (like those for COVID-19) deliver genetic instructions for cells to produce a target antigen, triggering an immune response. In both cases, the immune system produces antibodies and memory B-cells and T-cells that enable a rapid response if the real pathogen is encountered later. This process is called immunization.`
+  };
+
+  const queryLower = query.toLowerCase();
+  let answerKey = 'photosynthesis';
+  if (queryLower.includes('warm') || queryLower.includes('climate')) answerKey = 'global warming';
+  else if (queryLower.includes('rag') || queryLower.includes('retrieval') || queryLower.includes('llm')) answerKey = 'rag';
+  else if (queryLower.includes('vaccine') || queryLower.includes('immune')) answerKey = 'vaccine';
+  else if (!queryLower.includes('photo')) answerKey = 'photosynthesis';
+
+  const answer = answers[answerKey] || answers['photosynthesis'];
+
+  state.ragComplete = true;
+
+  return `
+    ${flowDiagram(6)}
+    <div class="stage-card">
+      <div class="stage-title">
+        ✨ Response Generation
+        <span class="stage-badge" style="background:rgba(0,229,255,0.1);color:var(--accent);border:1px solid rgba(0,229,255,0.2)">Step 7</span>
+      </div>
+      <div class="stage-desc">
+        The augmented prompt is sent to the <strong>LLM</strong>, which generates a response grounded in the retrieved context. The model synthesizes the retrieved information with its linguistic capabilities to produce a coherent, factual answer.
+      </div>
+      <div class="info-box">
+        💡 <strong>Key benefit:</strong> The LLM doesn't have to "guess" from training data — it has the relevant facts right in its context window. This drastically reduces hallucination and improves accuracy on specific domain questions.
+      </div>
+
+      <div style="margin-bottom:16px;padding:14px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;">
+        <div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);margin-bottom:6px;">USER QUERY</div>
+        <div style="font-size:14px;color:var(--accent);font-weight:600;">"${query}"</div>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--accent3);margin-bottom:12px;font-family:'JetBrains Mono',monospace;">
+        ✓ LLM Response
+      </div>
+
+      <div class="response-box">
+        <div class="response-text" id="responseText">${answer}</div>
+      </div>
+
+      <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--accent3);">${retrieved.length}</div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px;">Sources Used</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--accent);">~${Math.floor(answer.split(' ').length * 1.3)} tok</div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px;">Response Tokens</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
+          <div style="font-size:18px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--accent2);">Low</div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:2px;">Hallucination Risk</div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--text-dim);margin-bottom:10px;font-family:'JetBrains Mono',monospace;">
+          Source Citations
+        </div>
+        ${retrieved.map((c, i) => `
+          <div style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;">
+            <span style="background:rgba(16,185,129,0.2);color:var(--accent3);font-size:10px;font-family:'JetBrains Mono',monospace;padding:2px 6px;border-radius:4px;flex-shrink:0;">[${i+1}]</span>
+            <div>
+              <div style="font-size:11px;color:var(--accent3);font-family:'JetBrains Mono',monospace;margin-bottom:3px;">${c.sourceIcon} ${c.source} · ${c.id} · score: ${c.score.toFixed(3)}</div>
+              <div style="font-size:11px;color:var(--text-dim);">${c.text.substring(0,100)}…</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+
+      <div style="margin-top:20px;padding:16px;background:linear-gradient(135deg,rgba(0,229,255,0.08),rgba(124,58,237,0.08));border:1px solid rgba(0,229,255,0.2);border-radius:12px;text-align:center;">
+        <div style="font-size:14px;font-weight:700;margin-bottom:6px;">🎉 RAG Pipeline Complete!</div>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.6;">
+          You've walked through all 7 steps of Retrieval-Augmented Generation — from raw documents to a grounded LLM response. Try a different query or change the config to see how it affects results.
+        </div>
+        <button class="btn btn-primary" style="margin-top:14px;" onclick="resetAll()">↺ Try Another Query</button>
+      </div>
+    </div>
+  `;
+}
+
+// ============================
+// PIPELINE ACTIONS
+// ============================
+function startRAG() {
+  const query = document.getElementById('queryInput').value.trim();
+  if (!query) { alert('Please enter a query first.'); return; }
+  state.query = query;
+
+  // Reset state
+  state.currentStep = 0;
+  state.stepsUnlocked = [true, false, false, false, false, false, false];
+  state.chunks = [];
+  state.embeddings = [];
+  state.retrievedChunks = [];
+  state.ragComplete = false;
+
+  // Unlock all and auto-advance
+  state.stepsUnlocked = [true, true, true, true, true, true, true];
+
+  updateTabUI();
+  goToStep(1);
+}
+
+function proceedChunk() {
+  const query = document.getElementById('queryInput').value.trim();
+  if (!query) {
+    alert('Please enter a query in the sidebar first, then click "Run RAG Pipeline".');
+    return;
+  }
+  state.query = query;
+  state.stepsUnlocked = [true, true, true, true, true, true, true];
+  updateTabUI();
+  goToStep(1);
+}
+
+function resetAll() {
+  state = {
+    selectedDocs: ['doc1'],
+    currentStep: 0,
+    chunks: [],
+    embeddings: [],
+    retrievedChunks: [],
+    query: '',
+    topK: parseInt(document.getElementById('topK')?.value || 3),
+    ragComplete: false,
+    stepsUnlocked: [true, false, false, false, false, false, false]
+  };
+  document.getElementById('queryInput').value = '';
+  updateTabUI();
+  goToStep(0);
+}
+</script>
+</body>
+</html>
